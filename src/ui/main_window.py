@@ -68,9 +68,11 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._start_model_loading()
 
-    def _build_license_info(self, raw: dict | None) -> LicenseInfo:
+    def _build_license_info(self, raw: dict | LicenseInfo | None) -> LicenseInfo:
         if raw is None:
             return LicenseInfo()
+        if isinstance(raw, LicenseInfo):
+            return raw
         return LicenseInfo.from_verify_result(raw)
 
     def _get_app_version(self) -> str:

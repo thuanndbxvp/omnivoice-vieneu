@@ -113,22 +113,22 @@ def main() -> int:
     app = create_app(sys.argv)
     logger.info("Starting %s %s (License Bypass Mode)", app.applicationName(), app.applicationVersion())
 
-    # Build perpetual unlimited Professional license object
-    bypass_license = LicenseInfo(
-        status=LicenseStatus.VALID,
-        tier=LicenseTier.PROFESSIONAL,
-        license_key="PRO-BYPASS-UNLIMITED-PERPETUAL",
-        username="VIP License User",
-        email="vip@local.app",
-        expires_at="2099-12-31 23:59:59",
-        days_remaining=99999,
-        message="License Bypass Active (Professional Perpetual)",
-    )
+    bypass_license_dict = {
+        "valid": True,
+        "tier": "professional",
+        "license_key": "PRO-BYPASS-UNLIMITED-PERPETUAL",
+        "username": "VIP License User",
+        "email": "vip@local.app",
+        "message": "License Bypass Active (Professional Perpetual)",
+        "days_left": 99999,
+        "machine_id": "LOCAL-BYPASS-HWID",
+        "expiry": 4102444799,
+    }
 
-    logger.info("Bypassing license dialog & runtime guards — active tier: %s", bypass_license.tier.value)
+    logger.info("Bypassing license dialog & runtime guards — active tier: professional")
 
     # Launch MainWindow directly with full professional license info
-    window = MainWindow(license_info=bypass_license)
+    window = MainWindow(license_info=bypass_license_dict)
     window.show()
 
     logger.info("Application window shown (Bypass Mode) — entering event loop")
