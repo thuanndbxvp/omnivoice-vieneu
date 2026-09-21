@@ -20,6 +20,7 @@ venv_cu128/
 dist/
 dist_launcher/
 dist_r2/
+dist_offline/
 build/
 build_launcher_temp/
 build_app_secured/

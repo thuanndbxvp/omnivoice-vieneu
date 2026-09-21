@@ -79,6 +79,19 @@ try:
 except Exception:
     pass
 
+# Auto-detect local offline HuggingFace cache for VieNeu
+for _base in [
+    os.environ.get("OMNIVOICE_ROOT"),
+    os.path.dirname(os.path.abspath(__file__)),
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+]:
+    if _base:
+        _hf_c = os.path.join(_base, "hf_cache")
+        if os.path.isdir(_hf_c):
+            os.environ.setdefault("HF_HOME", _hf_c)
+            os.environ.setdefault("HF_HUB_CACHE", _hf_c)
+            break
+
 _setup_utf8_streams()
 
 

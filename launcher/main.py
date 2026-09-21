@@ -38,19 +38,26 @@ LOCAL_MODELS_DIR = ROOT_DIR / "models"
 
 
 def verify_runtime_health(python_exe: Path) -> Tuple[bool, str]:
-    """Execute smoke test on downloaded runtime using torch tensor multiplication."""
+    """Execute smoke test on downloaded runtime using torch tensor multiplication with zero-crash CPU fallback."""
     test_code = """
 import sys
 try:
     import torch
+    cuda_works = False
     if torch.cuda.is_available():
-        x = torch.randn(128, 128, device="cuda")
-        y = x @ x
-        archs = torch.cuda.get_arch_list()
-        dev_name = torch.cuda.get_device_name()
-        print(f"CUDA_OK|{dev_name}|{archs}")
-    else:
-        x = torch.randn(128, 128)
+        try:
+            x = torch.randn(64, 64, device="cuda")
+            y = x @ x
+            dev_name = torch.cuda.get_device_name(0)
+            archs = torch.cuda.get_arch_list()
+            print(f"CUDA_OK|{dev_name}|{archs}")
+            cuda_works = True
+        except Exception as ce:
+            print(f"CUDA_WARN|{ce}", file=sys.stderr)
+            cuda_works = False
+
+    if not cuda_works:
+        x = torch.randn(64, 64)
         y = x @ x
         print("CPU_OK")
 except Exception as e:
@@ -125,6 +132,11 @@ class SetupWorker(QThread):
                     if profile != "cpu-universal" and manifest:
                         self.status_changed.emit("GPU runtime không phản hồi — Tự động fallback sang gói CPU đa năng...")
                         self._ensure_runtime(manifest, "cpu-universal")
+                else:
+                    if "CUDA_OK" in diag:
+                        self.status_changed.emit("Môi trường tăng tốc GPU NVIDIA sẵn sàng.")
+                    else:
+                        self.status_changed.emit("Môi trường sẵn sàng ở chế độ CPU đa năng (Thích ứng tự động).")
 
             # 6. Check AI Models
             self._ensure_models(manifest)
@@ -401,6 +413,12 @@ class LauncherApp:
         spawn_env = os.environ.copy()
         spawn_env["PYTHONPATH"] = f"{str(app_dir)}{os.pathsep}{str(ROOT_DIR)}{os.pathsep}{spawn_env.get('PYTHONPATH', '')}"
         spawn_env["OMNIVOICE_ROOT"] = str(ROOT_DIR)
+
+        # Offline HuggingFace cache config for VieNeu-TTS
+        hf_cache_dir = ROOT_DIR / "hf_cache"
+        if hf_cache_dir.exists():
+            spawn_env["HF_HOME"] = str(hf_cache_dir)
+            spawn_env["HF_HUB_CACHE"] = str(hf_cache_dir)
 
         subprocess.Popen(
             [python_exe, str(main_script)],

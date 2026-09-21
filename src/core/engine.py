@@ -167,17 +167,31 @@ class VoiceEngine:
         """
         info = {"device": "cpu", "gpu_name": None, "vram_gb": None, "cpu_reason": None}
 
+        cuda_ok = False
         if torch.cuda.is_available():
+            try:
+                # Active probe: verify driver and compute capability compatibility by allocating a tensor
+                _probe = torch.zeros(1, device="cuda:0")
+                cuda_ok = True
+            except Exception as probe_err:
+                logger.warning("CUDA reported available but tensor probe failed: %s", probe_err)
+                cuda_ok = False
+
+        if cuda_ok:
             info["device"] = "cuda:0"
-            info["gpu_name"] = torch.cuda.get_device_name(0)
-            props = torch.cuda.get_device_properties(0)
-            vram = getattr(props, "total_memory", None) or getattr(props, "total_mem", 0)
-            info["vram_gb"] = round(vram / (1024**3), 1)
-            logger.info("GPU detected: %s (%.1f GB)", info["gpu_name"], info["vram_gb"])
+            try:
+                info["gpu_name"] = torch.cuda.get_device_name(0)
+                props = torch.cuda.get_device_properties(0)
+                vram = getattr(props, "total_memory", None) or getattr(props, "total_mem", 0)
+                info["vram_gb"] = round(vram / (1024**3), 1)
+            except Exception:
+                info["gpu_name"] = "NVIDIA GPU (CUDA)"
+                info["vram_gb"] = 0.0
+            logger.info("GPU detected & verified: %s (%.1f GB)", info["gpu_name"], info["vram_gb"])
         else:
             reason = self._diagnose_no_cuda()
             info["cpu_reason"] = reason
-            logger.info("No CUDA GPU detected — will use CPU (slower inference). Reason: %s", reason)
+            logger.info("No functional CUDA GPU detected — will use CPU (slower inference). Reason: %s", reason)
 
         return info
 
@@ -188,16 +202,16 @@ class VoiceEngine:
             import subprocess
 
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
-                gpu_names = result.stdout.strip()
+                gpu_info = result.stdout.strip()
                 return (
-                    f"Phát hiện GPU NVIDIA ({gpu_names}) nhưng PyTorch CUDA không khả dụng. "
-                    "Có thể cần cài lại PyTorch bản hỗ trợ CUDA hoặc cập nhật driver NVIDIA."
+                    f"Phát hiện GPU NVIDIA ({gpu_info}) nhưng driver hoặc cấu hình CUDA không phản hồi. "
+                    "Hệ thống đã tự động kích hoạt chế độ CPU."
                 )
         except FileNotFoundError:
             pass
@@ -205,8 +219,7 @@ class VoiceEngine:
             pass
 
         return (
-            "Máy không có GPU NVIDIA hỗ trợ CUDA. GPU Intel/AMD hiện chưa được hỗ trợ. "
-            "App sẽ chạy trên CPU (chậm hơn)."
+            "Máy tính hoạt động ở chế độ CPU đa năng (không phát hiện GPU rời hoặc driver lỗi)."
         )
 
     # ------------------------------------------------------------------
@@ -250,7 +263,16 @@ class VoiceEngine:
             _emit("Importing VieNeu...")
             from vieneu import Vieneu
             _emit(f"Loading VieNeu model '{model_id}' on {self.device}...")
-            self.model = Vieneu(mode="v3turbo")
+            try:
+                self.model = Vieneu(mode="v3turbo")
+            except Exception as e:
+                if "cuda" in str(self.device).lower() or "cuda" in str(e).lower():
+                    _emit(f"VieNeu GPU initialization failed ({e}) — falling back to CPU...")
+                    self.device = "cpu"
+                    self.dtype = torch.float32
+                    self.model = Vieneu(mode="v3turbo")
+                else:
+                    raise
             self._asr_enabled = False
             self.is_loaded = True
             if self._current_ref_audio_path:
@@ -279,23 +301,34 @@ class VoiceEngine:
                 self._current_prompt = None
             _emit("Model loaded successfully!")
             return dev_info
-        except RuntimeError as exc:
-            # GPU OOM → fallback to CPU
-            if "CUDA" in str(exc) or "out of memory" in str(exc):
-                _emit("GPU out of memory — falling back to CPU...")
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            is_cuda_err = any(k in exc_str for k in ("cuda", "gpu", "out of memory", "device-side assert", "no kernel image", "driver version"))
+            if is_cuda_err and self.device != "cpu":
+                _emit(f"GPU error encountered ({exc}) — falling back to CPU...")
                 self.device = "cpu"
                 self.dtype = torch.float32
-                self.model = OmniVoice.from_pretrained(
-                    resolved_model,
-                    device_map="cpu",
-                    dtype=torch.float32,
-                    load_asr=load_asr,
-                )
-                self._asr_enabled = load_asr
-            else:
-                raise
-        except Exception:
-            if load_asr:
+                try:
+                    self.model = OmniVoice.from_pretrained(
+                        resolved_model,
+                        device_map="cpu",
+                        dtype=torch.float32,
+                        load_asr=load_asr,
+                    )
+                    self._asr_enabled = load_asr
+                except Exception:
+                    if load_asr:
+                        _emit("CPU load with ASR failed — retrying on CPU without ASR...")
+                        self.model = OmniVoice.from_pretrained(
+                            resolved_model,
+                            device_map="cpu",
+                            dtype=torch.float32,
+                            load_asr=False,
+                        )
+                        self._asr_enabled = False
+                    else:
+                        raise
+            elif load_asr:
                 _emit("ASR init failed — retry loading model without ASR...")
                 self.model = OmniVoice.from_pretrained(
                     resolved_model,
