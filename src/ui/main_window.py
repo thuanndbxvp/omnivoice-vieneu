@@ -190,11 +190,13 @@ class MainWindow(QMainWindow):
             layout.addWidget(logo)
 
         # App title
-        title = QLabel(APP_DISPLAY_NAME.replace("-", "\n", 1))
+        title_text = APP_DISPLAY_NAME.replace("—", "\n").replace("-", "\n").strip()
+        title = QLabel(title_text)
         title.setObjectName("sidebar_title")
+        title.setWordWrap(True)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-        layout.addSpacing(20)
+        layout.addSpacing(16)
 
         # Nav buttons
         self.nav_buttons: list[SidebarButton] = []
