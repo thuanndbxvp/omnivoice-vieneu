@@ -5,12 +5,17 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import sys
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Callable, Optional
+
+# Set default socket timeout for OS level (prevents infinite hanging / socket freeze)
+socket.setdefaulttimeout(20.0)
 
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) OmniVoiceLauncher/1.0"
 MANIFEST_URL = "https://pub-809dc95ff1ec45b2a32a971be2eb83e0.r2.dev/manifest.json"
@@ -71,8 +76,9 @@ def download_file(
     progress_callback: Optional[Callable[[int, int, float], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
     chunk_size: int = 1024 * 1024,
+    max_retries: int = 8,
 ) -> bool:
-    """Download a file with progress reporting, cache check, and checksum verification.
+    """Download a file with HTTP Range resume, socket timeout, auto-retry, and checksum verification.
 
     Args:
         url: Remote URL to download.
@@ -81,6 +87,7 @@ def download_file(
         progress_callback: callback(downloaded_bytes, total_bytes, speed_mb_s).
         cancel_check: callback returning True if cancellation is requested.
         chunk_size: read buffer size.
+        max_retries: Maximum number of reconnection attempts before failing.
 
     Returns:
         bool: True if downloaded and verified successfully, False otherwise.
@@ -109,74 +116,121 @@ def download_file(
         except Exception as e:
             print(f"[Downloader] Error checking part file: {e}")
 
+    # Query total content length via HEAD request
+    total_size = 0
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            total_size = int(resp.headers.get("Content-Length", 0))
+        head_req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT}, method="HEAD")
+        with urllib.request.urlopen(head_req, timeout=12) as head_resp:
+            total_size = int(head_resp.headers.get("Content-Length", 0))
+    except Exception as e:
+        print(f"[Downloader] Could not determine total size via HEAD: {e}")
+
+    for attempt in range(1, max_retries + 1):
+        if cancel_check and cancel_check():
+            return False
+
+        try:
             downloaded = 0
-            start_time = time.time()
-            last_calc_time = start_time
-            last_calc_bytes = 0
-            speed_mb = 0.0
+            open_mode = "wb"
+            headers = {"User-Agent": DEFAULT_USER_AGENT}
 
-            with open(temp_path, "wb") as f:
-                while True:
-                    if cancel_check and cancel_check():
-                        if temp_path.exists():
-                            try:
-                                temp_path.unlink()
-                            except Exception:
-                                pass
-                        return False
+            # Resume partial download if .part file already exists
+            if temp_path.exists():
+                existing_bytes = temp_path.stat().st_size
+                if total_size > 0 and existing_bytes > total_size:
+                    temp_path.unlink()
+                elif existing_bytes > 0:
+                    headers["Range"] = f"bytes={existing_bytes}-"
+                    downloaded = existing_bytes
+                    open_mode = "ab"
+                    print(f"[Downloader] Resuming download at byte {existing_bytes}/{total_size} (attempt {attempt}/{max_retries})...")
 
-                    chunk = resp.read(chunk_size)
-                    if not chunk:
-                        break
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                status = getattr(resp, "status", 200)
 
-                    f.write(chunk)
-                    downloaded += len(chunk)
+                if status == 206:
+                    content_range = resp.headers.get("Content-Range", "")
+                    if content_range and "/" in content_range:
+                        try:
+                            total_size = int(content_range.split("/")[-1])
+                        except Exception:
+                            pass
+                elif status == 200:
+                    if open_mode == "ab":
+                        open_mode = "wb"
+                        downloaded = 0
+                    total_size = int(resp.headers.get("Content-Length", total_size))
 
-                    now = time.time()
-                    time_diff = now - last_calc_time
-                    if time_diff >= 0.5:
-                        bytes_diff = downloaded - last_calc_bytes
-                        speed_mb = (bytes_diff / (1024 * 1024)) / time_diff
-                        last_calc_time = now
-                        last_calc_bytes = downloaded
+                start_time = time.time()
+                last_calc_time = start_time
+                last_calc_bytes = downloaded
+                speed_mb = 0.0
 
-                    if progress_callback:
-                        progress_callback(downloaded, total_size, speed_mb)
+                with open(temp_path, open_mode) as f:
+                    while True:
+                        if cancel_check and cancel_check():
+                            return False
 
-        # Ensure buffer flush
-        time.sleep(0.2)
+                        chunk = resp.read(chunk_size)
+                        if not chunk:
+                            break
 
-        # Verify SHA256 if provided
-        if expected_sha256:
-            actual_sha = compute_sha256(temp_path)
-            if actual_sha.lower() != expected_sha256.lower():
-                print(f"[Downloader] Checksum mismatch! Expected {expected_sha256}, got {actual_sha}")
-                if temp_path.exists():
+                        f.write(chunk)
+                        downloaded += len(chunk)
+
+                        now = time.time()
+                        time_diff = now - last_calc_time
+                        if time_diff >= 0.5:
+                            bytes_diff = downloaded - last_calc_bytes
+                            speed_mb = (bytes_diff / (1024 * 1024)) / time_diff
+                            last_calc_time = now
+                            last_calc_bytes = downloaded
+
+                        if progress_callback:
+                            progress_callback(downloaded, total_size, speed_mb)
+
+            time.sleep(0.2)
+
+            # Check if download is truly complete
+            if total_size > 0 and temp_path.exists() and temp_path.stat().st_size < total_size:
+                print(f"[Downloader] Incomplete download ({temp_path.stat().st_size}/{total_size}), resuming next chunk...")
+                continue
+
+            # Verify SHA256 if provided
+            if expected_sha256 and temp_path.exists():
+                actual_sha = compute_sha256(temp_path)
+                if actual_sha.lower() != expected_sha256.lower():
+                    print(f"[Downloader] Checksum mismatch! Expected {expected_sha256}, got {actual_sha}")
                     try:
                         temp_path.unlink()
                     except Exception:
                         pass
+                    if attempt < max_retries:
+                        time.sleep(1)
+                        continue
+                    return False
+
+            # Atomic rename with retry for Windows Defender file locking
+            if not _atomic_replace_with_retry(temp_path, dest_path):
+                print(f"[Downloader] Could not replace {temp_path} -> {dest_path} due to file lock.")
                 return False
 
-        # Atomic rename with retry for Windows Defender file locking
-        if not _atomic_replace_with_retry(temp_path, dest_path):
-            print(f"[Downloader] Could not replace {temp_path} -> {dest_path} due to file lock.")
-            return False
+            return True
 
-        return True
+        except Exception as e:
+            print(f"[Downloader] Network error on attempt {attempt}/{max_retries} for {url}: {e}")
+            if cancel_check and cancel_check():
+                return False
+            if attempt < max_retries:
+                backoff = min(attempt * 1.5, 6.0)
+                print(f"[Downloader] Auto-retrying with resume in {backoff:.1f}s...")
+                time.sleep(backoff)
+            else:
+                print(f"[Downloader] Failed after {max_retries} attempts.")
+                return False
 
-    except Exception as e:
-        print(f"[Downloader] Error downloading {url}: {e}")
-        if temp_path.exists():
-            try:
-                temp_path.unlink()
-            except Exception:
-                pass
-        return False
+    return False
 
 
 def extract_zip(

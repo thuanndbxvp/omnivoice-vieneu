@@ -284,19 +284,36 @@ class SetupWorker(QThread):
                 progress_callback=dl_cb,
                 cancel_check=lambda: self._is_cancelled,
             )
-            if not ok:
-                raise RuntimeError("Không thể tải mô hình OmniVoice.")
+            if ok:
+                def ext_cb_omni(d, t):
+                    pct = int((d / t) * 100) if t > 0 else 0
+                    self.progress_changed.emit(pct, f"Giải nén mô hình: {pct}% ({d}/{t} tệp)")
 
-            def ext_cb_omni(d, t):
-                pct = int((d / t) * 100) if t > 0 else 0
-                self.progress_changed.emit(pct, f"Giải nén mô hình: {pct}% ({d}/{t} tệp)")
-
-            self.status_changed.emit("Đang giải nén mô hình OmniVoice...")
-            extract_zip(zip_target, ROOT_DIR, progress_callback=ext_cb_omni)
+                self.status_changed.emit("Đang giải nén mô hình OmniVoice...")
+                extract_zip(zip_target, ROOT_DIR, progress_callback=ext_cb_omni)
+            else:
+                # Fallback directly to HuggingFace Hub
+                hf_repo = m_info.get("fallback_hf", "k2-fsa/OmniVoice")
+                self.status_changed.emit(f"Máy chủ R2 bận — Tự động chuyển hướng tải từ HuggingFace Hub ({hf_repo})...")
+                python_exe = self._resolve_python_executable()
+                if python_exe:
+                    target_dir = ROOT_DIR / "omnivoice_model"
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    hf_cmd = [
+                        str(python_exe),
+                        "-c",
+                        f"from huggingface_hub import snapshot_download; snapshot_download(repo_id='{hf_repo}', local_dir=r'{str(target_dir)}')"
+                    ]
+                    res_hf = subprocess.run(hf_cmd, capture_output=True, text=True)
+                    if res_hf.returncode != 0:
+                        raise RuntimeError(f"Không thể tải mô hình OmniVoice từ cả R2 lẫn HuggingFace: {res_hf.stderr or res_hf.stdout}")
+                else:
+                    raise RuntimeError("Không thể tải mô hình OmniVoice.")
 
         # 2. VieNeu Model
         vieneu_hf = Path.home() / ".cache" / "huggingface" / "hub" / "models--pnnbao-ump--VieNeu-TTS-v3-Turbo"
-        if not vieneu_hf.exists() and manifest and "vieneu" in manifest.get("models", {}):
+        vieneu_local_cache = ROOT_DIR / "hf_cache" / "models--pnnbao-ump--VieNeu-TTS-v3-Turbo"
+        if not vieneu_hf.exists() and not vieneu_local_cache.exists() and manifest and "vieneu" in manifest.get("models", {}):
             v_info = manifest["models"]["vieneu"]
             self.status_changed.emit("Đang tải mô hình tiếng Việt VieNeu-TTS v3 Turbo...")
             zip_target = ROOT_DIR / "downloads" / v_info["filename"]
@@ -313,15 +330,29 @@ class SetupWorker(QThread):
                 progress_callback=dl_cb,
                 cancel_check=lambda: self._is_cancelled,
             )
-            if not ok:
-                raise RuntimeError("Không thể tải mô hình VieNeu-TTS.")
+            if ok:
+                def ext_cb_vieneu(d, t):
+                    pct = int((d / t) * 100) if t > 0 else 0
+                    self.progress_changed.emit(pct, f"Giải nén mô hình: {pct}% ({d}/{t} tệp)")
 
-            def ext_cb_vieneu(d, t):
-                pct = int((d / t) * 100) if t > 0 else 0
-                self.progress_changed.emit(pct, f"Giải nén mô hình: {pct}% ({d}/{t} tệp)")
-
-            self.status_changed.emit("Đang giải nén mô hình VieNeu...")
-            extract_zip(zip_target, Path.home() / ".cache" / "huggingface" / "hub", progress_callback=ext_cb_vieneu)
+                self.status_changed.emit("Đang giải nén mô hình VieNeu...")
+                extract_zip(zip_target, Path.home() / ".cache" / "huggingface" / "hub", progress_callback=ext_cb_vieneu)
+            else:
+                # Fallback directly to HuggingFace Hub
+                hf_repo = v_info.get("fallback_hf", "pnnbao-ump/VieNeu-TTS-v3-Turbo")
+                self.status_changed.emit(f"Máy chủ R2 bận — Tự động chuyển hướng tải từ HuggingFace Hub ({hf_repo})...")
+                python_exe = self._resolve_python_executable()
+                if python_exe:
+                    hf_cmd = [
+                        str(python_exe),
+                        "-c",
+                        f"from huggingface_hub import snapshot_download; snapshot_download(repo_id='{hf_repo}')"
+                    ]
+                    res_hf = subprocess.run(hf_cmd, capture_output=True, text=True)
+                    if res_hf.returncode != 0:
+                        raise RuntimeError(f"Không thể tải mô hình VieNeu từ cả R2 lẫn HuggingFace: {res_hf.stderr or res_hf.stdout}")
+                else:
+                    raise RuntimeError("Không thể tải mô hình VieNeu-TTS.")
 
     def _resolve_python_executable(self) -> Optional[Path]:
         """Find the python executable in runtime or venv."""
