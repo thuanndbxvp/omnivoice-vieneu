@@ -451,12 +451,22 @@ class LauncherApp:
             spawn_env["HF_HOME"] = str(hf_cache_dir)
             spawn_env["HF_HUB_CACHE"] = str(hf_cache_dir)
 
-        subprocess.Popen(
-            [python_exe, str(main_script)],
-            cwd=str(ROOT_DIR),
-            env=spawn_env,
-            creationflags=subprocess.DETACHED_PROCESS if sys.platform == "win32" else 0,
-        )
+        try:
+            proc = subprocess.Popen(
+                [python_exe, str(main_script)],
+                cwd=str(ROOT_DIR),
+                env=spawn_env,
+                creationflags=subprocess.DETACHED_PROCESS if sys.platform == "win32" else 0,
+            )
+            # Brief check to ensure app didn't crash on startup
+            time.sleep(1.2)
+            if proc.poll() is not None and proc.returncode != 0:
+                self._on_error(f"Ứng dụng lõi thoát bất thường (Mã thoát: {proc.returncode}). Bạn có thể nhấp đúp file '89TTS_Studio.exe' để khởi động trực tiếp.")
+                return
+        except Exception as e:
+            self._on_error(f"Lỗi khởi chạy tiến trình ứng dụng: {e}")
+            return
+
         self.window.close()
         self.app.quit()
 

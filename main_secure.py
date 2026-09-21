@@ -14,6 +14,12 @@ import os
 import sys
 import time
 
+# Ensure current script directory and root directory are ALWAYS in sys.path
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+for _candidate_path in (_current_dir, os.path.dirname(_current_dir)):
+    if _candidate_path and _candidate_path not in sys.path:
+        sys.path.insert(0, _candidate_path)
+
 def _setup_utf8_streams() -> None:
     """Ensure sys.stdout and sys.stderr use UTF-8 encoding with character replacement to prevent UnicodeEncodeError in GUI executables."""
     os.environ["PYTHONIOENCODING"] = "utf-8"

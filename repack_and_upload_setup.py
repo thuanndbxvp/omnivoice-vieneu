@@ -23,6 +23,18 @@ def main():
         if not exe_path.exists():
             raise FileNotFoundError(f"Missing {exe_path}")
         zf.write(exe_path, "89TTS_Launcher/89TTS_Launcher.exe")
+
+        # 1b. Add 89TTS_Studio.exe (Direct execution)
+        studio_exe = launcher_dir / "89TTS_Studio.exe"
+        if studio_exe.exists():
+            zf.write(studio_exe, "89TTS_Launcher/89TTS_Studio.exe")
+            print("  + Added 89TTS_Studio.exe")
+
+        # 1c. Add bat helper
+        bat_file = launcher_dir / "Khởi_Động_89TTS.bat"
+        if bat_file.exists():
+            zf.write(bat_file, "89TTS_Launcher/Khởi_Động_89TTS.bat")
+            print("  + Added Khởi_Động_89TTS.bat")
         
         # 2. Add _internal/
         internal_dir = launcher_dir / "_internal"

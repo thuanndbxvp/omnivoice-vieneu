@@ -21,8 +21,10 @@ dist/
 dist_launcher/
 dist_r2/
 dist_offline/
+dist_direct/
 build/
 build_launcher_temp/
+build_studio_temp/
 build_app_secured/
 *.zip
 *.part
