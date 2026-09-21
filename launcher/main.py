@@ -148,12 +148,14 @@ class SetupWorker(QThread):
 
     def _ensure_app_code(self, manifest: Optional[dict]):
         """Ensure app code is present and up to date."""
-        app_main_script = LOCAL_APP_DIR / "main_secure.py"
+        app_main_script = LOCAL_APP_DIR / "main_secure.pyc"
+        if not app_main_script.exists():
+            app_main_script = LOCAL_APP_DIR / "main_secure.py"
         if not app_main_script.exists():
             app_main_script = LOCAL_APP_DIR / "main.py"
         
         # In dev or repo environment, if app/ doesn't exist yet, we can run from ROOT_DIR
-        if ((ROOT_DIR / "main_secure.py").exists() or (ROOT_DIR / "main.py").exists()) and not LOCAL_APP_DIR.exists() and not self.force_repair:
+        if ((ROOT_DIR / "main_secure.py").exists() or (ROOT_DIR / "main_secure.pyc").exists()) and not LOCAL_APP_DIR.exists() and not self.force_repair:
             return
 
         need_download = not app_main_script.exists() or self.force_repair
@@ -383,17 +385,17 @@ class LauncherApp:
         """Spawn the main application process and close the launcher."""
         main_script = None
         for candidate in [
+            Path(app_dir) / "main_secure.pyc",
             Path(app_dir) / "main_secure.py",
+            ROOT_DIR / "main_secure.pyc",
             ROOT_DIR / "main_secure.py",
-            Path(app_dir) / "main.py",
-            ROOT_DIR / "main.py",
         ]:
             if candidate.exists():
                 main_script = candidate
                 break
 
         if not main_script:
-            main_script = Path(app_dir) / "main_secure.py"
+            main_script = Path(app_dir) / "main_secure.pyc" if (Path(app_dir) / "main_secure.pyc").exists() else Path(app_dir) / "main_secure.py"
 
         # Setup runtime environment so app knows root folder and python modules
         spawn_env = os.environ.copy()
