@@ -61,6 +61,8 @@ Thumbs.db
 
 # Logs
 *.log
+adminpanel/logs/ratelimit/
+adminpanel/public/error_log
 
 # Misc
 analysis_results.md
