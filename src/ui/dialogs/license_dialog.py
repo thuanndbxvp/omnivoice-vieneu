@@ -29,7 +29,7 @@ class LicenseDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("AI86.PRO — Kích hoạt bản quyền")
+        self.setWindowTitle("89 Global Media — Kích hoạt bản quyền")
         self.setFixedSize(500, 430)
         self.setWindowFlags(
             Qt.WindowType.Dialog
@@ -61,7 +61,7 @@ class LicenseDialog(QDialog):
             logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(logo)
 
-        title = QLabel("AI86.PRO Voice Cloner & TTS")
+        title = QLabel("89 Global Media — OmniVoice TTS Pro")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #89b4fa; background: transparent;")
         layout.addWidget(title)

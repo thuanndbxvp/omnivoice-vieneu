@@ -11,9 +11,9 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont, QIcon
 
 
-APP_DISPLAY_NAME = "89Media TTS Pro"
-APP_DEFAULT_VERSION = "V1.1.1-13042026"
-APP_ORGANIZATION = "AI86.PRO"
+APP_DISPLAY_NAME = "89TTS — 89 Global Media"
+APP_DEFAULT_VERSION = "V1.0.0-2026"
+APP_ORGANIZATION = "89 Global Media"
 MANIFEST_FILENAME = "RELEASE_MANIFEST.json"
 RESOURCES_DIR = Path(__file__).parent.parent / "resources"
 

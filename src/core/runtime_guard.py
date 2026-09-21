@@ -13,8 +13,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
-_RE_VERIFY_INTERVAL = 3600  # 1 hour
-_ANTI_DEBUG_INTERVAL = 30   # 30 seconds
+_RE_VERIFY_INTERVAL = 86400  # 24 hours (86,400 seconds)
+_ANTI_DEBUG_INTERVAL = 30    # 30 seconds
 
 
 # ==============================================================================

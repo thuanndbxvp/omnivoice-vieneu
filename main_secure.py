@@ -58,6 +58,27 @@ def _setup_utf8_streams() -> None:
     except Exception:
         pass
 
+# Suppress third-party library warnings (e.g. pydub regex escape warnings on Python 3.12)
+import warnings
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub.*")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="pydub.*")
+
+# Global FFmpeg configuration for audio processing (pydub / soundfile)
+try:
+    import imageio_ffmpeg
+    _ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    _ffmpeg_dir = os.path.dirname(_ffmpeg_exe)
+    if _ffmpeg_dir not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = _ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+
+    import pydub
+    pydub.AudioSegment.converter = _ffmpeg_exe
+    _ffprobe = _ffmpeg_exe.replace("ffmpeg", "ffprobe")
+    if os.path.exists(_ffprobe):
+        pydub.AudioSegment.ffprobe = _ffprobe
+except Exception:
+    pass
+
 _setup_utf8_streams()
 
 
@@ -154,33 +175,13 @@ if __name__ == "__main__":
         print("SMOKE_TEST_OK")
         sys.exit(0)
 
-    # Ensure ffmpeg is available (bundled via imageio-ffmpeg)
-    try:
-        import imageio_ffmpeg
-        _ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        _ffmpeg_dir = os.path.dirname(_ffmpeg_exe)
-        if _ffmpeg_dir not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = _ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
-        try:
-            from pydub.utils import which as _which
-            if not _which("ffmpeg"):
-                import pydub
-                pydub.AudioSegment.converter = _ffmpeg_exe
-                _ffprobe = _ffmpeg_exe.replace("ffmpeg", "ffprobe")
-                if os.path.exists(_ffprobe):
-                    pydub.AudioSegment.ffprobe = _ffprobe
-        except Exception:
-            pass
-    except ImportError:
-        pass
-
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    logger = logging.getLogger("omnivoice-cloner")
+    logger = logging.getLogger("89tts-secure")
 
     from src.ui.app import create_app
     from src.ui.main_window import MainWindow

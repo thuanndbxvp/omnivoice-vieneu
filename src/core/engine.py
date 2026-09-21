@@ -57,6 +57,11 @@ def _is_truthy_env(name: str) -> bool:
 def _model_dir_candidates() -> list[Path]:
     candidates: list[Path] = []
 
+    # Check environment variable first if set by launcher
+    env_root = os.getenv("OMNIVOICE_ROOT")
+    if env_root:
+        candidates.append(Path(env_root) / BUNDLED_MODEL_DIRNAME)
+
     if getattr(sys, "frozen", False):
         # Typical PyInstaller onedir layout
         exe_dir = Path(sys.executable).resolve().parent
@@ -68,10 +73,19 @@ def _model_dir_candidates() -> list[Path]:
             candidates.append(meipass_path / BUNDLED_MODEL_DIRNAME)
             candidates.append(meipass_path.parent / BUNDLED_MODEL_DIRNAME)
 
-    # Dev/runtime local candidates
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates.append(repo_root / BUNDLED_MODEL_DIRNAME)
+    # Search through parent hierarchy up to 5 levels (supports app/src/core -> launcher root)
+    current_file = Path(__file__).resolve()
+    for parent in current_file.parents:
+        candidates.append(parent / BUNDLED_MODEL_DIRNAME)
+
+    # Current working dir and its parent
     candidates.append(Path.cwd() / BUNDLED_MODEL_DIRNAME)
+    candidates.append(Path.cwd().parent / BUNDLED_MODEL_DIRNAME)
+
+    # Python executable directory and its parent (in case runtime/python.exe is used)
+    py_dir = Path(sys.executable).resolve().parent
+    candidates.append(py_dir / BUNDLED_MODEL_DIRNAME)
+    candidates.append(py_dir.parent / BUNDLED_MODEL_DIRNAME)
 
     # de-duplicate while preserving order
     unique: list[Path] = []

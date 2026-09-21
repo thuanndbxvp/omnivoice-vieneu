@@ -13,6 +13,17 @@ build/
 venv/
 .venv/
 env/
+venv_cpu/
+venv_cu128/
+
+# Build and distribution directories
+dist/
+dist_launcher/
+dist_r2/
+build/
+build_launcher_temp/
+*.zip
+*.part
 
 # Model files (large binary files)
 omnivoice_model/

@@ -29,7 +29,7 @@ if str(BASE_DIR) not in sys.path:
 BUILD_TAG_BASE = "V1.1"
 SCRIPT_NAME = Path(__file__).name
 
-APP_NAME = "AI86-VoiceCloner"
+APP_NAME = "89TTS"
 ENTRYPOINT = BASE_DIR / "main_secure.py"
 ICON_ICO = BASE_DIR / "favicon.ico"
 ICON_PNG = BASE_DIR / "Applogo.png"

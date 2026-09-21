@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-License Client for OmniVoice Cloner.
-Adapted from V3.4 license_client_secure.py for AI86.PRO Voice Cloner & TTS.
+License Client for 89 Global Media — 89TTS.
+Adapted for 89 Global Media — 89TTS Voice Cloner & TTS.
 """
 import base64
 import os
@@ -32,19 +32,13 @@ _pd = "MhwFcvyU"
 _pe = "PRYXIhGhWh4="
 _PUBLIC_KEY_B64 = _pa + _pb + _pc + _pd + _pe
 
-# API URLs (base64 encoded)
-_API_URL_ENC = "aHR0cHM6Ly9zeW5jLmdvbWh1b25nY2FuaC52bg=="
+# API URL (base64 encoded) — Single dedicated license server
+_API_URL_ENC = "aHR0cHM6Ly84OWdsb2JhbG1lZGlhLm9ubGluZQ=="  # https://89globalmedia.online
 _API_URL = base64.b64decode(_API_URL_ENC).decode()
 
-_API_URL_FALLBACK_ENC = "aHR0cHM6Ly92ZXJpZnkuYWk4Ni5jbGljaw=="
-_API_URL_FALLBACK = base64.b64decode(_API_URL_FALLBACK_ENC).decode()
-
-_API_URL_DAILY_ENC = "aHR0cHM6Ly9kYWlseWFpODYub25saW5l"
-_API_URL_DAILY = base64.b64decode(_API_URL_DAILY_ENC).decode()
-
 # App identity
-_APP_ID = "ai-tts1"
-_APP_VERSION = "omnivoice-1.0.0"
+_APP_ID = "89tts"
+_APP_VERSION = "89tts-1.0.0"
 
 # Pepper for HKDF
 _PEPPER = b"omnivoice-" + b"cloner-" + b"pepper-2025-v1"
@@ -116,6 +110,35 @@ def _base_dir() -> Path:
 
 def _license_path() -> Path:
     return _base_dir() / "license.bin"
+
+def _last_verified_path() -> Path:
+    return _base_dir() / "last_verified.meta"
+
+def _get_last_verified_time() -> datetime | None:
+    path = _last_verified_path()
+    if not path.exists():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+        data = json.loads(content)
+        ts_str = data.get("last_verified_at")
+        if ts_str:
+            return _parse_time(ts_str)
+    except Exception:
+        pass
+    return None
+
+def _save_last_verified_time(dt: datetime) -> None:
+    try:
+        path = _last_verified_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "last_verified_at": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "machine_id": _get_machine_id(),
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
+    except Exception as e:
+        _diag(f"save last verified time error: {e}")
 
 def _device_fallback_path() -> Path:
     return _base_dir() / "device_fallback.id"
@@ -303,6 +326,7 @@ def _save_token(token_b64: str, kid: str, exp_utc: str) -> None:
     path = _license_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(protected)
+    _save_last_verified_time(_utcnow())
 
 def _load_token() -> str | None:
     path = _license_path()
@@ -374,20 +398,19 @@ def _candidate_endpoint_urls(base: str, endpoint: str) -> list[str]:
     return [f"{b}/api/{ep}", f"{b}/{ep}"]
 
 def _post_with_failover(endpoint: str, payload: dict) -> dict:
+    """Send request strictly and exclusively to 89globalmedia.online (no fallback)."""
     last_err = None
-    servers = [_API_URL, _API_URL_DAILY, _API_URL_FALLBACK]
-    for base in servers:
-        for url in _candidate_endpoint_urls(base, endpoint):
-            try:
-                return _post_json(url, payload)
-            except RuntimeError as exc:
-                msg = str(exc).lower()
-                if any(t in msg for t in ("invalid", "rejected", "revoked", "expired", "device")):
-                    raise
-                last_err = exc
-                _diag(f"failover: {url} failed: {exc}")
-                continue
-    raise last_err or RuntimeError("all servers unreachable")
+    for url in _candidate_endpoint_urls(_API_URL, endpoint):
+        try:
+            return _post_json(url, payload)
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            if any(t in msg for t in ("invalid", "rejected", "revoked", "expired", "device")):
+                raise
+            last_err = exc
+            _diag(f"license server: {url} failed: {exc}")
+            continue
+    raise last_err or RuntimeError("license server unreachable")
 
 # ==============================================================================
 # MAIN LICENSE MANAGER CLASS
@@ -440,6 +463,9 @@ class LicenseManager:
             path = _license_path()
             if path.exists():
                 path.unlink()
+            meta = _last_verified_path()
+            if meta.exists():
+                meta.unlink()
             self._cache_at = None
             self._cache_result = None
             return True
@@ -550,12 +576,17 @@ class LicenseManager:
             "expiry": int(exp_dt.timestamp()) if exp_dt else None,
         }
 
-        iat = _parse_time(payload.get("iat")) or _parse_time(payload.get("last_verified"))
-        needs_server_check = (not iat or (now - iat).total_seconds() >= self.VERIFY_INTERVAL)
+        last_verified = _get_last_verified_time()
+        if not last_verified:
+            last_verified = _parse_time(payload.get("iat")) or _parse_time(payload.get("last_verified"))
 
-        if not needs_server_check:
+        # Nếu token còn hạn và đã xác thực trong vòng 24 giờ qua: BỎ QUA GỌI MẠNG, chạy ngay lập tức
+        if last_verified and (now - last_verified).total_seconds() < self.VERIFY_INTERVAL:
+            _diag(f"Token local valid. Last verified {(now - last_verified).total_seconds():.0f}s ago (< 24h). Skipping server request.")
             return base_result
 
+        # Đã quá 24h kể từ lần xác thực trước: Gửi request lên server 89globalmedia.online
+        _diag(f"Token past 24h window (last verified: {last_verified}). Requesting server verify...")
         try:
             data = _post_with_failover("license/verify", {
                 "token": token_b64,
@@ -564,18 +595,22 @@ class LicenseManager:
                 "appVersion": _APP_VERSION,
             })
             if data.get("active") is False:
-                return {"valid": False, "message": "license inactive"}
-            _diag("token verify ok")
+                _diag("Server returned active=False (license revoked/inactive)")
+                return {"valid": False, "message": "Bản quyền đã bị vô hiệu hóa hoặc thu hồi trên máy chủ."}
+
+            _save_last_verified_time(now)
+            _diag("Token verify ok from server — 24h verification window reset.")
             return base_result
         except RuntimeError as exc:
             err = str(exc).lower()
             if any(t in err for t in ("revoked", "inactive", "device", "expired")):
                 return {"valid": False, "message": str(exc)}
             grace = min(int(payload.get("offline_grace_days", self.OFFLINE_GRACE_DAYS)), self.MAX_OFFLINE_GRACE_DAYS)
-            if iat and (now - iat) <= timedelta(days=grace):
-                _diag(f"offline grace active: {exc}")
+            ref_time = last_verified or now
+            if (now - ref_time) <= timedelta(days=grace):
+                _diag(f"Network error during 24h check, offline grace active ({grace} days): {exc}")
                 return base_result
-            return {"valid": False, "message": f"license_unverified: {exc}"}
+            return {"valid": False, "message": f"Không thể kết nối máy chủ xác thực bản quyền: {exc}"}
 
     def _set_cache(self, at: datetime, result: dict) -> None:
         self._cache_at = at
