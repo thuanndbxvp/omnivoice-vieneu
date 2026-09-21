@@ -22,6 +22,7 @@ dist_launcher/
 dist_r2/
 build/
 build_launcher_temp/
+build_app_secured/
 *.zip
 *.part
 
