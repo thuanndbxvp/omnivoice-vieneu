@@ -18,10 +18,14 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, Tuple, Union
+
+# Optimize CUDA allocator to avoid fragmentation on 4GB-8GB GPUs
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 # Ensure standard streams are UTF-8 safe with replacement
 for _s in ("stdout", "stderr"):
@@ -579,6 +583,20 @@ class VoiceEngine:
         self._save_prompt_cache(cache_key, cache_payload, prompt)
         self._current_prompt = prompt
         self._current_ref_audio_path = str(audio_path)
+
+        # Unload Whisper ASR pipeline from GPU immediately to reclaim ~1.7GB VRAM!
+        if hasattr(self.model, "_asr_pipe") and self.model._asr_pipe is not None:
+            try:
+                logger.info("Unloading Whisper ASR pipeline to reclaim ~1.7GB VRAM...")
+                del self.model._asr_pipe
+                self.model._asr_pipe = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                logger.info("Freed ~1.7GB VRAM successfully.")
+            except Exception as e:
+                logger.warning("Could not unload ASR pipeline: %s", e)
+
         return prompt
 
     # ------------------------------------------------------------------
@@ -776,7 +794,35 @@ class VoiceEngine:
                 else:
                     logger.warning("Voice clone prompt object invalid or incompatible with OmniVoice: %s", type(prompt))
 
-            audio_tensors = self.model.generate(**kwargs)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            try:
+                audio_tensors = self.model.generate(**kwargs)
+            except torch.cuda.OutOfMemoryError as oom_err:
+                logger.warning("CUDA OOM in chunk %d/%d: %s. Attempting cache recovery...", i + 1, total, oom_err)
+                if hasattr(self.model, "_asr_pipe"):
+                    try:
+                        del self.model._asr_pipe
+                        self.model._asr_pipe = None
+                    except Exception:
+                        pass
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                time.sleep(0.5)
+                try:
+                    audio_tensors = self.model.generate(**kwargs)
+                except torch.cuda.OutOfMemoryError:
+                    raise RuntimeError(
+                        "Bộ nhớ card đồ họa (VRAM GPU) bị tràn khi xử lý văn bản dài với mô hình OmniVoice.\n\n"
+                        "💡 HƯỚNG DẪN KHẮC PHỤC:\n"
+                        "1. Chọn mô hình 'VieNeu-TTS-v3-Turbo' ở menu phía trên: Đây là mô hình Tiếng Việt siêu nhẹ (chỉ tốn ~800MB VRAM), đọc văn bản dài hàng chục nghìn ký tự cực mượt và không bao giờ bị tràn VRAM!\n"
+                        "2. Hoặc chia bài đọc dài thành các đoạn ngắn hơn để xử lý."
+                    )
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             # Convert first result to 1-D numpy array
             # OmniVoice returns list of tensors or numpy arrays

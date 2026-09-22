@@ -124,6 +124,7 @@ def main():
     env = os.environ.copy()
     env["OMNIVOICE_ROOT"] = str(base_dir)
     env["PYTHONPATH"] = f"{str(app_dir)}{os.pathsep}{str(base_dir)}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
     hf_cache = base_dir / "hf_cache"
     if hf_cache.exists():

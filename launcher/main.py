@@ -476,6 +476,7 @@ class LauncherApp:
         spawn_env = os.environ.copy()
         spawn_env["PYTHONPATH"] = f"{str(app_dir)}{os.pathsep}{str(ROOT_DIR)}{os.pathsep}{spawn_env.get('PYTHONPATH', '')}"
         spawn_env["OMNIVOICE_ROOT"] = str(ROOT_DIR)
+        spawn_env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
         # Offline HuggingFace cache config for VieNeu-TTS
         hf_cache_dir = ROOT_DIR / "hf_cache"

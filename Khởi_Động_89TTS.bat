@@ -10,6 +10,7 @@ echo.
 cd /d "%~dp0"
 set "OMNIVOICE_ROOT=%~dp0"
 set "PYTHONPATH=%~dp0app;%~dp0;%PYTHONPATH%"
+set "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
 
 :: Tự động loại bỏ pyvenv.cfg nếu có để chuyển runtime sang portable độc lập
 if exist "%~dp0runtime\pyvenv.cfg" (
