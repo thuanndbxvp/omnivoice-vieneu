@@ -120,6 +120,7 @@ class SetupWorker(QThread):
 
             # 4. Check Runtime Environment
             self._ensure_runtime(manifest, profile)
+            self._sanitize_runtime(LOCAL_RUNTIME_DIR)
 
             # 5. Runtime Smoke Test (Tensor math check)
             self.status_changed.emit("Đang kiểm tra sức khỏe môi trường tính toán (Tensor Smoke Test)...")
@@ -354,6 +355,37 @@ class SetupWorker(QThread):
                 else:
                     raise RuntimeError("Không thể tải mô hình VieNeu-TTS.")
 
+    def _sanitize_runtime(self, rt_dir: Path):
+        """Ensure runtime is a 100% self-contained portable Python environment."""
+        if not rt_dir.exists():
+            return
+        # 1. Remove pyvenv.cfg if present to avoid hardcoded dev machine paths
+        cfg = rt_dir / "pyvenv.cfg"
+        if cfg.exists():
+            try:
+                cfg.unlink()
+            except Exception:
+                pass
+        # 2. Ensure python312._pth contains proper isolated paths
+        pth = rt_dir / "python312._pth"
+        required_paths = [".", "DLLs", "Lib", "Lib\\site-packages", "import site", "..\\app", "app", ".."]
+        lines = []
+        if pth.exists():
+            try:
+                lines = [l.strip() for l in pth.read_text(encoding="utf-8").splitlines()]
+            except Exception:
+                pass
+        changed = False
+        for req in required_paths:
+            if req not in lines:
+                lines.append(req)
+                changed = True
+        if changed or not pth.exists():
+            try:
+                pth.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            except Exception:
+                pass
+
     def _resolve_python_executable(self) -> Optional[Path]:
         """Find the python executable in runtime or venv."""
         candidates = [
@@ -452,6 +484,19 @@ class LauncherApp:
             spawn_env["HF_HUB_CACHE"] = str(hf_cache_dir)
 
         try:
+            # Pre-flight check: ensure python_exe does not fail with exit 103
+            chk = subprocess.run(
+                [python_exe, "-c", "import sys"],
+                capture_output=True,
+                timeout=3.0,
+                creationflags=0x08000000 if sys.platform == "win32" else 0,
+            )
+            if chk.returncode != 0:
+                self._on_error(
+                    f"Môi trường Python lỗi (Mã {chk.returncode}). Vui lòng giải nén gói '89TTS_Fix_Runtime.zip' vào thư mục app hoặc bấm 'Sửa lỗi / Tải lại'."
+                )
+                return
+
             proc = subprocess.Popen(
                 [python_exe, str(main_script)],
                 cwd=str(ROOT_DIR),
@@ -459,7 +504,7 @@ class LauncherApp:
                 creationflags=subprocess.DETACHED_PROCESS if sys.platform == "win32" else 0,
             )
             # Brief check to ensure app didn't crash on startup
-            time.sleep(1.2)
+            time.sleep(1.5)
             if proc.poll() is not None and proc.returncode != 0:
                 self._on_error(f"Ứng dụng lõi thoát bất thường (Mã thoát: {proc.returncode}). Bạn có thể nhấp đúp file '89TTS_Studio.exe' để khởi động trực tiếp.")
                 return

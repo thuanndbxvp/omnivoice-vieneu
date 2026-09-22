@@ -23,8 +23,12 @@ def build_launcher():
         raise FileNotFoundError(f"Cannot find launcher entrypoint: {LAUNCHER_MAIN}")
 
     LAUNCHER_NAME = "89TTS_Launcher"
+    py_exe = BASE_DIR / "venv" / "Scripts" / "python.exe"
+    if not py_exe.exists():
+        py_exe = Path(sys.executable)
+
     cmd = [
-        sys.executable,
+        str(py_exe),
         "-m",
         "PyInstaller",
         "--noconfirm",

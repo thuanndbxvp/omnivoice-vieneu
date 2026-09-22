@@ -28,6 +28,33 @@ def main():
     app_dir = base_dir / "app"
     runtime_dir = base_dir / "runtime"
 
+    # Auto-sanitize runtime to ensure standalone portable execution
+    if runtime_dir.exists():
+        cfg = runtime_dir / "pyvenv.cfg"
+        if cfg.exists():
+            try:
+                cfg.unlink()
+            except Exception:
+                pass
+        pth = runtime_dir / "python312._pth"
+        required_paths = [".", "DLLs", "Lib", "Lib\\site-packages", "import site", "..\\app", "app", ".."]
+        lines = []
+        if pth.exists():
+            try:
+                lines = [l.strip() for l in pth.read_text(encoding="utf-8").splitlines()]
+            except Exception:
+                pass
+        changed = False
+        for r in required_paths:
+            if r not in lines:
+                lines.append(r)
+                changed = True
+        if changed or not pth.exists():
+            try:
+                pth.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            except Exception:
+                pass
+
     # 1. Resolve Python executable
     py_candidates = [
         runtime_dir / "pythonw.exe",
@@ -72,7 +99,28 @@ def main():
         )
         sys.exit(1)
 
-    # 3. Environment configuration
+    # 3. Quick test python executable health
+    try:
+        chk = subprocess.run(
+            [str(python_exe), "-c", "import sys"],
+            capture_output=True,
+            timeout=3.0,
+            creationflags=0x08000000 if sys.platform == "win32" else 0, # CREATE_NO_WINDOW
+        )
+        if chk.returncode != 0:
+            show_error(
+                "89TTS Studio — Môi Trường Python Bị Lỗi",
+                f"Môi trường Python tại:\n{python_exe}\n\n"
+                f"Gặp sự cố khi khởi chạy (Mã lỗi: {chk.returncode}).\n"
+                "Nguyên nhân thường do thiếu tệp core standalone (python312.dll hoặc DLLs).\n\n"
+                "Vui lòng giải nén gói '89TTS_Fix_Runtime.zip' hoặc mở Launcher để sửa chữa.",
+            )
+            sys.exit(chk.returncode)
+    except Exception as e:
+        show_error("89TTS Studio — Lỗi Môi Trường", f"Không thể xác thực môi trường Python:\n{e}")
+        sys.exit(1)
+
+    # 4. Environment configuration
     env = os.environ.copy()
     env["OMNIVOICE_ROOT"] = str(base_dir)
     env["PYTHONPATH"] = f"{str(app_dir)}{os.pathsep}{str(base_dir)}{os.pathsep}{env.get('PYTHONPATH', '')}"
@@ -82,7 +130,7 @@ def main():
         env["HF_HOME"] = str(hf_cache)
         env["HF_HUB_CACHE"] = str(hf_cache)
 
-    # 4. Launch the application process
+    # 5. Launch the application process
     try:
         proc = subprocess.Popen(
             [str(python_exe), str(app_script)],
@@ -96,7 +144,7 @@ def main():
             show_error(
                 "89TTS Studio — Lỗi Khởi Chạy",
                 f"Ứng dụng gặp sự cố và đã thoát với mã lỗi: {proc.returncode}.\n\n"
-                "Bạn có thể mở '89TTS_Launcher.exe' để kiểm tra tính toàn vẹn hoặc chạy 'Chay_Truc_Tiep_89TTS.bat' để xem chi tiết lỗi.",
+                "Bạn có thể mở '89TTS_Launcher.exe' để kiểm tra tính toàn vẹn hoặc chạy 'Khởi_Động_89TTS.bat' để xem chi tiết lỗi.",
             )
             sys.exit(proc.returncode)
     except Exception as e:

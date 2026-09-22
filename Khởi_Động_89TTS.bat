@@ -11,6 +11,11 @@ cd /d "%~dp0"
 set "OMNIVOICE_ROOT=%~dp0"
 set "PYTHONPATH=%~dp0app;%~dp0;%PYTHONPATH%"
 
+:: Tự động loại bỏ pyvenv.cfg nếu có để chuyển runtime sang portable độc lập
+if exist "%~dp0runtime\pyvenv.cfg" (
+    del /f /q "%~dp0runtime\pyvenv.cfg" >nul 2>&1
+)
+
 if exist "%~dp0hf_cache" (
     set "HF_HOME=%~dp0hf_cache"
     set "HF_HUB_CACHE=%~dp0hf_cache"
