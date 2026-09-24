@@ -64,7 +64,7 @@ def build_help_html() -> str:
   <b>Ứng dụng:</b> {APP_DISPLAY_NAME}<br>
   <b>Liên hệ hỗ trợ:</b> Telegram: @nobitabx<br>
   <b>Phiên bản:</b> {version}<br>
-  <b>Website:</b> 89globalmedia.online
+  <b>Website:</b> 89gm.id.vn (Dự phòng: 89globalmedia.online)
 </p>
 """
 

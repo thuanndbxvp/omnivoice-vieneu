@@ -32,9 +32,16 @@ _pd = "MhwFcvyU"
 _pe = "PRYXIhGhWh4="
 _PUBLIC_KEY_B64 = _pa + _pb + _pc + _pd + _pe
 
-# API URL (base64 encoded) — Single dedicated license server
-_API_URL_ENC = "aHR0cHM6Ly84OWdsb2JhbG1lZGlhLm9ubGluZQ=="  # https://89globalmedia.online
-_API_URL = base64.b64decode(_API_URL_ENC).decode()
+# API URLs (base64 encoded)
+# Primary license server: 89gm.id.vn
+_PRIMARY_URL_ENC = "aHR0cHM6Ly84OWdtLmlkLnZu"  # https://89gm.id.vn
+# Backup fallback server: 89globalmedia.online
+_BACKUP_URL_ENC = "aHR0cHM6Ly84OWdsb2JhbG1lZGlhLm9ubGluZQ=="  # https://89globalmedia.online
+
+_PRIMARY_URL = base64.b64decode(_PRIMARY_URL_ENC).decode()
+_BACKUP_URL = base64.b64decode(_BACKUP_URL_ENC).decode()
+_API_URL = _PRIMARY_URL
+_SERVERS = [_PRIMARY_URL, _BACKUP_URL]
 
 # App identity
 _APP_ID = "89tts"
@@ -398,18 +405,24 @@ def _candidate_endpoint_urls(base: str, endpoint: str) -> list[str]:
     return [f"{b}/api/{ep}", f"{b}/{ep}"]
 
 def _post_with_failover(endpoint: str, payload: dict) -> dict:
-    """Send request strictly and exclusively to 89globalmedia.online (no fallback)."""
+    """Send request to primary server (89gm.id.vn) with seamless failover to backup (89globalmedia.online)."""
     last_err = None
-    for url in _candidate_endpoint_urls(_API_URL, endpoint):
-        try:
-            return _post_json(url, payload)
-        except RuntimeError as exc:
-            msg = str(exc).lower()
-            if any(t in msg for t in ("invalid", "rejected", "revoked", "expired", "device")):
-                raise
-            last_err = exc
-            _diag(f"license server: {url} failed: {exc}")
-            continue
+    for srv in _SERVERS:
+        for url in _candidate_endpoint_urls(srv, endpoint):
+            try:
+                return _post_json(url, payload)
+            except RuntimeError as exc:
+                msg = str(exc).lower()
+                # If server answered with a definitive business rejection, don't failover
+                if any(t in msg for t in ("invalid", "rejected", "revoked", "expired", "device", "not found", "không hợp lệ", "hết hạn")):
+                    raise
+                last_err = exc
+                _diag(f"license server: {url} failed: {exc}, trying next candidate...")
+                continue
+            except Exception as exc:
+                last_err = exc
+                _diag(f"license server: {url} error: {exc}, trying next candidate...")
+                continue
     raise last_err or RuntimeError("license server unreachable")
 
 # ==============================================================================
@@ -585,7 +598,7 @@ class LicenseManager:
             _diag(f"Token local valid. Last verified {(now - last_verified).total_seconds():.0f}s ago (< 24h). Skipping server request.")
             return base_result
 
-        # Đã quá 24h kể từ lần xác thực trước: Gửi request lên server 89globalmedia.online
+        # Đã quá 24h kể từ lần xác thực trước: Gửi request lên server 89gm.id.vn (dự phòng: 89globalmedia.online)
         _diag(f"Token past 24h window (last verified: {last_verified}). Requesting server verify...")
         try:
             data = _post_with_failover("license/verify", {
